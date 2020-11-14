@@ -1,0 +1,117 @@
+import subprocess
+subprocess.run(["C:\\Users\\leona\\Desktop\\Hydroflow_1.35_Terminal_Install\\Hydroflow.exe","C:\\Users\\leona\\Desktop\\Hydroflow_1.35_Terminal_Install\\Dados2\\Hidro.shp","C:\\Users\\leona\\Desktop\\Hydroflow_1.35_Terminal_Install\\Dados2\\Limite.shp","0.0001"])
+
+# CRIA DICIONÁRIO COM ID E ORDEM DE CADA CURSO DA HIDROGRAFIA, COM BASE NOS ARQUIVOS GERADOS PELO HIDROFLOW
+
+import qgis.core
+from qgis.core import QgsVectorLayer
+vlayer = QgsVectorLayer('C:\\Users\\leona\\Desktop\\Hydroflow_1.35_Terminal_Install\\Dados2\\Hidro_class.shp',"Ports layer", "ogr")
+dic_ID_Ordem = {}
+features = vlayer.getFeatures()
+for feature in features:
+    chave = int(feature.id())
+    valor = int(feature['Shreve'])
+    dic_ID_Ordem[chave] = valor
+print(dic_ID_Ordem)
+
+# CRIA TOPOLOGIA PARA BUSCA, COM BASE NO ARQUIVO GERADO NO HIDROFLOW
+
+arquivo = open('C:\\Users\\leona\\Desktop\\Hydroflow_1.35_Terminal_Install\\Dados2\\Hidro_topo.txt', 'r', encoding = "ISO-8859-1")
+arquivo.readline()
+topologia = {}
+linha = arquivo.readline()
+exutorio = None
+for linha in arquivo:
+    par = linha[:-1].split(';')
+    #print(par)
+    chave = int(par[0])
+    valor = int(par[-1])
+    if (exutorio == None):
+        exutorio = chave
+    if chave not in topologia:
+        topologia[chave] = []
+    topologia[chave].append(valor)
+print(topologia)
+
+# REALIZA O CALCULO SHARP - Gera uma lista de resultados para SHARP
+
+Qt_trechos = int(input('Quantos trechos deverão ser monitorados? '))
+l_sharp = []
+
+Ma = dic_ID_Ordem[exutorio]
+
+while True:
+    T = ((Ma + 1) / 2)
+    l_sharp.append(T)
+    if len(l_sharp) == Qt_trechos:
+        break
+    else:
+        T2 = ((T + 1) / 2)
+        l_sharp.append(T2)
+        if len(l_sharp) == Qt_trechos:
+            break
+        else:
+            T3 = T + T2
+            l_sharp.append(T3)
+            Ma = T2
+            if len(l_sharp) == Qt_trechos:
+                break
+
+l_sharp.sort(reverse=True)
+
+# BUSCA EM ÁRVORE DO ID ADEQUADO PARA CADA RESULTADO DE SHARP (RESULTADO PARCIAL)
+
+l_idno_menor = [exutorio]*len(l_sharp)
+
+def buscar(idno, l_sharp, l_idno_menor, pos_sharp_atual, dic_ID_Ordem, topologia):
+    dif = abs(dic_ID_Ordem[idno] - l_sharp[pos_sharp_atual])
+    menor_dif = abs(dic_ID_Ordem[l_idno_menor[pos_sharp_atual]] - l_sharp[pos_sharp_atual])
+    #print(dif,menor_dif, idno, l_sharp[pos_sharp_atual],dic_ID_Ordem[idno])
+    if (dif < menor_dif):
+        l_idno_menor[pos_sharp_atual] = idno
+    if dic_ID_Ordem[idno] <= l_sharp[pos_sharp_atual]:
+        pos_sharp_atual += 1
+        if pos_sharp_atual == len(l_sharp):
+            return
+        buscar(idno, l_sharp,l_idno_menor,pos_sharp_atual,dic_ID_Ordem,topologia)
+    elif dic_ID_Ordem[idno] >= l_sharp[pos_sharp_atual]:
+        for idno_filho in topologia[idno]:
+            buscar(idno_filho, l_sharp, l_idno_menor, pos_sharp_atual, dic_ID_Ordem, topologia)
+            if abs(dic_ID_Ordem[l_idno_menor[pos_sharp_atual]] - l_sharp[pos_sharp_atual]) < abs(dic_ID_Ordem[l_idno_menor[pos_sharp_atual]] - l_sharp[pos_sharp_atual]):
+                  l_idno_menor[pos_sharp_atual] = l_idno_menor[pos_sharp_atual]
+    return
+
+buscar(exutorio,l_sharp,l_idno_menor,0,dic_ID_Ordem,topologia)
+print(l_idno_menor)
+
+#BUSCA DE IDS IGUAIS AOS ENCONTRADOS NA PRIMEIRA BUSCA (RESULTADO FINAL)
+
+magnitudes = []
+resultado_final = {}
+for idno in l_idno_menor:
+    magnitudes.append(dic_ID_Ordem[idno])
+    resultado_final[dic_ID_Ordem[idno]] = []
+
+def buscar_ids_iguais(idno, magnitudes, pos_atual, dic_ID_Ordem, topologia, resultado_final):
+    if pos_atual == len(magnitudes):
+        return
+    if dic_ID_Ordem[idno] == magnitudes[pos_atual]:
+        resultado_final[magnitudes[pos_atual]].append(idno)
+    if dic_ID_Ordem[idno] <= magnitudes[pos_atual]:
+        buscar_ids_iguais(idno, magnitudes, pos_atual+1, dic_ID_Ordem, topologia, resultado_final)
+    else:
+        for idno_filho in topologia[idno]:
+            buscar_ids_iguais(idno_filho, magnitudes, pos_atual, dic_ID_Ordem, topologia, resultado_final)
+
+
+buscar_ids_iguais(exutorio, magnitudes,0, dic_ID_Ordem, topologia, resultado_final)
+l_result_final=[]
+where = ''
+
+for id in resultado_final:
+    for i in resultado_final[id]:
+        l_result_final.append(i)
+        where+=' or id='+str(i)
+print(where[4:])
+
+print(resultado_final)
